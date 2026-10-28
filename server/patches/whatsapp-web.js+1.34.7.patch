@@ -1,0 +1,135 @@
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 540078a..b2c3d4e 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -457,6 +457,19 @@ exports.LoadUtils = () => {
+             .require('WAWebGetEphemeralFieldsMsgActionsUtils')
+             .getEphemeralFields(chat);
+ 
++        let cleanMediaOptions = {};
++        if (Object.keys(mediaOptions).length > 0) {
++            cleanMediaOptions = mediaOptions.toJSON
++                ? mediaOptions.toJSON()
++                : { ...mediaOptions };
++            delete cleanMediaOptions.id;
++            delete cleanMediaOptions.__x_id;
++            delete cleanMediaOptions._events;
++            delete cleanMediaOptions._listeners;
++            delete cleanMediaOptions.collection;
++            delete cleanMediaOptions.cid;
++            if (mediaOptions.caption) cleanMediaOptions.caption = mediaOptions.caption;
++            if (mediaOptions.isViewOnce) cleanMediaOptions.isViewOnce = mediaOptions.isViewOnce;
++        }
++
+         const message = {
+             ...options,
+             id: newMsgKey,
+@@ -469,9 +482,8 @@ exports.LoadUtils = () => {
+             self: 'out',
+             t: parseInt(new Date().getTime() / 1000),
+             isNewMsg: true,
+-            type: 'chat',
++            type: cleanMediaOptions.type || 'chat',
+             ...ephemeralFields,
+-            ...mediaOptions,
+-            ...(mediaOptions.toJSON ? mediaOptions.toJSON() : {}),
++            ...cleanMediaOptions,
+             ...quotedMsgOptions,
+             ...locationOptions,
+             ...pollOptions,
+@@ -483,6 +495,10 @@ exports.LoadUtils = () => {
+             ...extraOptions,
+         };
+ 
++        delete message.__x_id;
++        message.id = newMsgKey;
++
+         // Bot's won't reply if canonicalUrl is set (linking)
+         if (botOptions) {
+             delete message.canonicalUrl;
+@@ -588,9 +604,39 @@ exports.LoadUtils = () => {
+         const [msgPromise, sendMsgResultPromise] = window
+             .require('WAWebSendMsgChatAction')
+             .addAndSendMsgToChat(chat, message);
+-        await msgPromise;
++        const msgResult = await msgPromise;
+ 
+         if (options.waitUntilMsgSent) await sendMsgResultPromise;
+ 
+-        return window
+-            .require('WAWebCollections')
+-            .Msg.get(newMsgKey._serialized);
++        const keyId =
++            newMsgKey._serialized ||
++            (typeof newMsgKey.toString === 'function' ? newMsgKey.toString() : null) ||
++            newMsgKey.$1 ||
++            newMsgKey.id;
++
++        const getMsg = () => {
++            return (
++                window.require('WAWebCollections').Msg.get(newMsgKey) ||
++                (keyId && window.require('WAWebCollections').Msg.get(keyId)) ||
++                (chat.msgs && (chat.msgs.get(newMsgKey) || (keyId && chat.msgs.get(keyId))))
++            );
++        };
++
++        let msg = getMsg();
++        for (let i = 0; !msg && i < 15; i++) {
++            await new Promise((resolve) => setTimeout(resolve, 100));
++            msg = getMsg();
++        }
++
++        if (!msg) {
++            msg = msgResult || {
++                ...message,
++                id: {
++                    fromMe: true,
++                    remote: chat.id._serialized || chat.id,
++                    id: newId,
++                    _serialized: keyId || `true_${chat.id._serialized || chat.id}_${newId}`,
++                },
++                ack: 1,
++            };
++        }
++
++        return msg;
+@@ -815,7 +861,8 @@ exports.LoadUtils = () => {
+     window.WWebJS.getMessageModel = (message) => {
+-        const msg = message.serialize();
++        if (!message) return null;
++        const msg = typeof message.serialize === 'function' ? message.serialize() : { ...message };
+ 
+         const { findLinks } = window.require('WALinkify');
+ 
+         msg.isEphemeral = message.isEphemeral;
+         msg.isStatusV3 = message.isStatusV3;
+         msg.links = findLinks(
+-            message.mediaObject ? message.caption : message.body,
++            message.mediaObject ? message.caption : (message.body || ''),
+         ).map((link) => ({
+             link: link.href,
+             isSuspicious: Boolean(
+                 link.suspiciousCharacters && link.suspiciousCharacters.size,
+             ),
+         }));
+ 
+-        if (msg.buttons) {
++        if (msg.buttons && typeof msg.buttons.serialize === 'function') {
+             msg.buttons = msg.buttons.serialize();
+         }
+         if (msg.dynamicReplyButtons) {
+             msg.dynamicReplyButtons = JSON.parse(
+                 JSON.stringify(msg.dynamicReplyButtons),
+             );
+         }
+         if (msg.replyButtons) {
+             msg.replyButtons = JSON.parse(JSON.stringify(msg.replyButtons));
+         }
+ 
+-        if (typeof msg.id.remote === 'object') {
++        if (msg.id && typeof msg.id.remote === 'object' && msg.id.remote) {
+             msg.id = Object.assign({}, msg.id, {
+-                remote: msg.id.remote._serialized,
++                remote: msg.id.remote._serialized || msg.id.remote,
+             });
+         }

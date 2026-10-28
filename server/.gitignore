@@ -1,0 +1,7 @@
+# dependencies
+/node_modules
+
+# lock files
+yarn.lock
+
+/.wwebjs_auth

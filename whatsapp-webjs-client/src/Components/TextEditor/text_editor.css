@@ -1,0 +1,21 @@
+
+.toolbar {
+    margin-bottom: 10px;
+  }
+  
+  .toolbar button {
+    margin-right: 10px;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  
+  .editor {
+    border: 1px solid #ccc;
+    min-height: 200px;
+    padding: 10px;
+  }
+  
+  button {
+    margin-top: 10px;
+    padding: 10px 20px;
+  }
